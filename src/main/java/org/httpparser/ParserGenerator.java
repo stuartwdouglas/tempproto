@@ -38,9 +38,6 @@ import org.jboss.classfilewriter.code.BranchEnd;
 import org.jboss.classfilewriter.code.CodeAttribute;
 import org.jboss.classfilewriter.code.CodeLocation;
 import org.jboss.classfilewriter.code.LookupSwitchBuilder;
-import org.jboss.classfilewriter.code.StackEntry;
-import org.jboss.classfilewriter.code.StackEntryType;
-import org.jboss.classfilewriter.util.DescriptorUtils;
 
 /**
  * @author Stuart Douglas
@@ -66,6 +63,47 @@ public class ParserGenerator {
         for (String value : VALUES) {
             addStates(initial, value, allStates);
         }
+
+        if (0 == 0) {
+
+            return new ValueParser() {
+                @Override
+                public List<String> tokens(final byte[] raw) {
+                    State current = initial;
+                    final List<String> ret = new ArrayList<String>();
+                    StringBuilder b = null;
+                    for (int i = 0; i < raw.length; ++i) {
+                        byte value = raw[i];
+                        if (current == null) {
+                            if (value == ' ') {
+                                ret.add(b.toString());
+                            } else {
+                                b.append((char)value);
+                            }
+                        } else {
+                            if (value == ' ') {
+                                if (current != initial) {
+                                    ret.add(current.soFar);
+                                    current = initial;
+                                }
+                            } else {
+                                State next = current.next.get(value);
+                                if (next != null) {
+                                    current = next;
+                                } else {
+                                    b = new StringBuilder(current.soFar);
+                                    b.append((char) value);
+                                    current = null;
+                                }
+                            }
+                        }
+                    }
+                    return ret;
+                }
+            };
+
+        }
+
 
         createMethodBody(method.getCodeAttribute(), initial, allStates);
 
@@ -139,7 +177,7 @@ public class ParserGenerator {
     private static void writeOutState(final CodeAttribute c, final State currentState, final CodeLocation initialState, final Set<BranchEnd> defaultState) {
         c.setupFrame("org.jboss.SomeClass", "[B", "Ljava/util/List;", "I");
         currentState.location = c.mark();
-        for(AtomicReference<BranchEnd> fr : currentState.forwardReferences) {
+        for (AtomicReference<BranchEnd> fr : currentState.forwardReferences) {
             c.branchEnd(fr.get());
         }
         c.aload(1);
@@ -205,7 +243,7 @@ public class ParserGenerator {
         final byte currentByte = bytes[i];
         State newState = current.next.get(currentByte);
         if (newState == null) {
-            current.next.put(currentByte, newState = new State(currentByte, value.substring(0, i+1)));
+            current.next.put(currentByte, newState = new State(currentByte, value.substring(0, i + 1)));
             allStates.add(newState);
         }
         addStates(newState, value, i + 1, allStates);
