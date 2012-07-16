@@ -22,13 +22,11 @@
 
 package org.httpparser;
 
-import java.util.List;
-
 /**
  * @author Stuart Douglas
  */
-public interface ValueParser {
+public interface Tokenizer {
 
-    List<String> tokens(final byte[] raw);
+    void handle(final byte read, final TokenContext context);
 
 }
