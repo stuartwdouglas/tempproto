@@ -101,15 +101,17 @@ public class SimpleTest {
                 tokens.add(token);
             }
         });
-        byte[] in = "PUT POST     ggg ".getBytes();
+        byte[] in = "PUT POST   PU  ggg PUTmore ".getBytes();
         for(int i = 0; i< in.length; ++i) {
             parser.handle(in[i], context);
         }
-        final String[] expected = {"PUT", "POST", "ggg"};
+        final String[] expected = {"PUT", "POST", "PU",  "ggg", "PUTmore" };
         Assert.assertEquals(Arrays.asList(expected), tokens);
         Assert.assertSame("PUT", tokens.get(0));
         Assert.assertSame("POST", tokens.get(1));
-        Assert.assertNotSame("ggg", tokens.get(2));
+        Assert.assertNotSame("PU", tokens.get(2));
+        Assert.assertNotSame("ggg", tokens.get(3));
+        Assert.assertNotSame("PUTmore", tokens.get(4));
     }
 
 

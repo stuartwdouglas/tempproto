@@ -234,18 +234,19 @@ public class TokenizerGenerator {
     @SuppressWarnings("unused")
     static void prefix(byte b, TokenContext context) {
         final TokenState state = context.getState();
+        final String current = state.getCurrent();
         if(b == ' ') {
-            if(state.getCurrent().length() == state.getPos()) {
-                tokenEnd(context, state.getCurrent());
+            if(current.length() == state.getPos()) {
+                tokenEnd(context, current);
             } else {
-                tokenEnd(context, state.getCurrent().substring(state.getPos()));
+                tokenEnd(context, current.substring(0, state.getPos()));
             }
         } else {
-            if(b == state.getCurrent().charAt(state.getPos())) {
+            if(state.getPos() != current.length() && b == current.charAt(state.getPos())) {
                 state.setPos(state.getPos()+1);
             } else {
                 state.setState(TokenState.NO_STATE);
-                final StringBuilder builder = new StringBuilder(state.getCurrent().substring(state.getPos()));
+                final StringBuilder builder = new StringBuilder(current.substring(0, state.getPos()));
                 builder.append((char)b);
                 state.setStringBuilder(builder);
             }
