@@ -37,6 +37,7 @@ import org.jboss.classfilewriter.ClassFile;
 import org.jboss.classfilewriter.ClassMethod;
 import org.jboss.classfilewriter.code.BranchEnd;
 import org.jboss.classfilewriter.code.CodeAttribute;
+import org.jboss.classfilewriter.code.CodeLocation;
 import org.jboss.classfilewriter.code.LookupSwitchBuilder;
 import org.jboss.classfilewriter.code.TableSwitchBuilder;
 import org.jboss.classfilewriter.util.DescriptorUtils;
@@ -71,7 +72,7 @@ public class TokenizerGenerator {
         }
         final int noStates = stateCounter.get();
 
-        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "V", "B", DescriptorUtils.makeDescriptor(TokenContext.class));
+        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "V", "[B", "I", "I", DescriptorUtils.makeDescriptor(TokenContext.class));
         writeHandle(className, handle.getCodeAttribute(), initial, allStates, noStates);
 
         writeStateMethod(file, initial);
@@ -92,64 +93,72 @@ public class TokenizerGenerator {
     }
 
     private static void writeStateMethod(final ClassFile file, final State currentState) {
-        final ClassMethod handle = file.addMethod(Modifier.STATIC, "state" + currentState.stateno, "V", "B", DescriptorUtils.makeDescriptor(TokenContext.class));
+        final ClassMethod handle = file.addMethod(Modifier.STATIC, "state" + currentState.stateno, "I", "[B", "I", "I", DescriptorUtils.makeDescriptor(TokenContext.class));
         final CodeAttribute c = handle.getCodeAttribute();
-        c.iload(0);
+        c.aload(0);
+        c.iload(1);
+        c.baload();
         final LookupSwitchBuilder s = new LookupSwitchBuilder();
         final AtomicReference<BranchEnd> tokenEnd = s.add((byte) ' ');
         final Map<State, AtomicReference<BranchEnd>> ends = new IdentityHashMap<State, AtomicReference<BranchEnd>>();
         for (final State state : currentState.next.values()) {
-                ends.put(state, s.add(state.value));
+            ends.put(state, s.add(state.value));
         }
         c.lookupswitch(s);
 
         //now we write out tokenEnd
         c.branchEnd(tokenEnd.get());
         if (!currentState.soFar.equals("")) {
-            c.aload(1);
+            c.aload(3);
             c.ldc(currentState.soFar);
             c.invokestatic(TokenizerGenerator.class.getName(), "tokenEnd", "(" + DescriptorUtils.makeDescriptor(TokenContext.class) + "Ljava/lang/String;)V");
         }
+        c.iconst(1);
         c.returnInstruction();
 
         final BranchEnd defaultSetup = s.getDefaultBranchEnd().get();
         c.branchEnd(defaultSetup);
         c.setupFrame("B", DescriptorUtils.makeDescriptor(TokenContext.class));
-        c.aload(1);
-        c.invokevirtual(TokenContext.class.getName(), "getState", DescriptorUtils.makeDescriptor(TokenState.class), new String[0]);
+        c.aload(3);
+        c.getfield(TokenContext.class.getName(), "state", TokenState.class);
         c.dup();
         c.iconst(TokenState.NO_STATE);
-        c.invokevirtual(TokenState.class.getName(), "setState", "(I)V");
+        c.putfield(TokenState.class.getName(), "state", "I");
         c.newInstruction(StringBuilder.class);
         c.dup();
         c.ldc(currentState.soFar);
         c.invokespecial(StringBuilder.class.getName(), "<init>", "(Ljava/lang/String;)V");
-        c.iload(0);
+        c.aload(0);
+        c.iload(1);
+        c.baload();
         c.invokevirtual(StringBuilder.class.getName(), "append", "(C)Ljava/lang/StringBuilder;");
-        c.invokevirtual(TokenState.class.getName(), "setStringBuilder", "(Ljava/lang/StringBuilder;)V");
+        c.putfield(TokenState.class.getName(), "stringBuilder", StringBuilder.class);
+        c.iconst(1);
         c.returnInstruction();
 
-        for(Map.Entry<State, AtomicReference<BranchEnd>> e : ends.entrySet()) {
+        for (Map.Entry<State, AtomicReference<BranchEnd>> e : ends.entrySet()) {
             c.branchEnd(e.getValue().get());
             final State state = e.getKey();
-            if(state.stateno < 0 ) {
+            if (state.stateno < 0) {
                 //prefix match
-                c.aload(1);
-                c.invokevirtual(TokenContext.class.getName(), "getState", DescriptorUtils.makeDescriptor(TokenState.class), new String[0]);
+                c.aload(3);
+                c.getfield(TokenContext.class.getName(), "state", TokenState.class);
                 c.dup();
                 c.dup();
                 c.iconst(state.stateno);
-                c.invokevirtual(TokenState.class.getName(), "setState", "(I)V");
+                c.putfield(TokenState.class.getName(), "state", "I");
                 c.ldc(state.terminalState);
-                c.invokevirtual(TokenState.class.getName(), "setCurrent", "(Ljava/lang/String;)V");
+                c.putfield(TokenState.class.getName(), "current", "Ljava/lang/String;");
                 c.iconst(state.soFar.length());
-                c.invokevirtual(TokenState.class.getName(), "setPos", "(I)V");
+                c.putfield(TokenState.class.getName(), "pos", "I");
+                c.iconst(1);
                 c.returnInstruction();
             } else {
-                c.aload(1);
-                c.invokevirtual(TokenContext.class.getName(), "getState", DescriptorUtils.makeDescriptor(TokenState.class), new String[0]);
+                c.aload(3);
+                c.getfield(TokenContext.class.getName(), "state", TokenState.class);
                 c.iconst(state.stateno);
-                c.invokevirtual(TokenState.class.getName(), "setState", "(I)V");
+                c.putfield(TokenState.class.getName(), "state", "I");
+                c.iconst(1);
                 c.returnInstruction();
             }
         }
@@ -188,11 +197,20 @@ public class TokenizerGenerator {
         states.add(initial);
         states.addAll(allStates);
         Collections.sort(states);
-        c.iload(1);
-        c.aload(2);
+        final CodeLocation start = c.mark();
+        c.iload(2);
+        c.iload(3);
+        final BranchEnd end = c.ifIcmplt();
+        c.returnInstruction();
+        c.branchEnd(end);
+
+        c.aload(1);
+        c.iload(2);
+        c.iload(3);
+        c.aload(4);
         c.dup();
-        c.invokevirtual(TokenContext.class.getName(), "getState", DescriptorUtils.makeDescriptor(TokenState.class), new String[0]);
-        c.invokevirtual(TokenState.class.getName(), "getState", "()I");
+        c.getfield(TokenContext.class.getName(), "state", TokenState.class);
+        c.getfield(TokenState.class.getName(), "state", "I");
         TableSwitchBuilder builder = new TableSwitchBuilder(-2, noStates);
         final IdentityHashMap<State, AtomicReference<BranchEnd>> ends = new IdentityHashMap<State, AtomicReference<BranchEnd>>();
         final AtomicReference<BranchEnd> prefixMatch = builder.add();
@@ -214,66 +232,97 @@ public class TokenizerGenerator {
 
         //prefix
         c.branchEnd(prefixMatch.get());
-        c.invokestatic(TokenizerGenerator.class.getName(), "prefix", "(B" + DescriptorUtils.makeDescriptor(TokenContext.class) + ")V");
-        c.returnInstruction();
+        c.invokestatic(TokenizerGenerator.class.getName(), "prefix", "([BII" + DescriptorUtils.makeDescriptor(TokenContext.class) + ")I");
+        c.iload(2);
+        c.iadd();
+        c.istore(2);
+        c.gotoInstruction(start);
 
         //none
         c.branchEnd(noState.get());
-        c.invokestatic(TokenizerGenerator.class.getName(), "nostate", "(B" + DescriptorUtils.makeDescriptor(TokenContext.class) + ")V");
-        c.returnInstruction();
+        c.invokestatic(TokenizerGenerator.class.getName(), "nostate", "([BII" + DescriptorUtils.makeDescriptor(TokenContext.class) + ")I");
+        c.iload(2);
+        c.iadd();
+        c.istore(2);
+        c.gotoInstruction(start);
 
-        invokeState(className, c, ends, initial);
+        invokeState(className, c, ends, initial, start);
         for (final State s : states) {
             if (s.stateno >= 0) {
-                invokeState(className, c, ends, s);
+                invokeState(className, c, ends, s, start);
             }
         }
     }
 
     //These methods are invoked by generated bytecode
     @SuppressWarnings("unused")
-    static void prefix(byte b, TokenContext context) {
-        final TokenState state = context.getState();
-        final String current = state.getCurrent();
-        if(b == ' ') {
-            if(current.length() == state.getPos()) {
-                tokenEnd(context, current);
+    static int prefix(byte[] data, int p, int length, TokenContext context) {
+        int datapos = p;
+        final TokenState state = context.state;
+        final String current = state.current;
+        int pos = state.pos;
+        int used = 1;
+        while (datapos < length) {
+            byte b = data[datapos];
+            if (b == ' ') {
+                if (current.length() == pos) {
+                    tokenEnd(context, current);
+                } else {
+                    tokenEnd(context, current.substring(0, pos));
+                }
+                return used;
             } else {
-                tokenEnd(context, current.substring(0, state.getPos()));
+                if (pos != current.length() && b == current.charAt(pos)) {
+                    ++pos;
+                } else {
+                    state.state = TokenState.NO_STATE;
+                    final StringBuilder builder = new StringBuilder(current.substring(0, pos));
+                    builder.append((char) b);
+                    state.stringBuilder = builder;
+                    return used;
+                }
             }
-        } else {
-            if(state.getPos() != current.length() && b == current.charAt(state.getPos())) {
-                state.setPos(state.getPos()+1);
-            } else {
-                state.setState(TokenState.NO_STATE);
-                final StringBuilder builder = new StringBuilder(current.substring(0, state.getPos()));
-                builder.append((char)b);
-                state.setStringBuilder(builder);
-            }
+            datapos++;
+            used++;
         }
+        context.state.setPos(pos);
+        return used;
     }
 
     @SuppressWarnings("unused")
-    static void nostate(byte b, TokenContext context) {
-        if(b == ' ') {
-            tokenEnd(context, context.getState().getStringBuilder().toString());
-        } else {
-            context.getState().getStringBuilder().append((char)b);
+    static int nostate(byte[] data, int p, int length, TokenContext context) {
+        int datapos = p;
+        int used = 1;
+        final StringBuilder stringBuilder = context.state.stringBuilder;
+        while (datapos < length) {
+            byte b = data[datapos];
+            if (b == ' ') {
+                tokenEnd(context, stringBuilder.toString());
+                return used;
+            } else {
+                stringBuilder.append((char) b);
+            }
+            ++used;
+            ++datapos;
         }
+        return used;
     }
 
     @SuppressWarnings("unused")
     static void tokenEnd(TokenContext context, String token) {
-        final TokenState state = context.getState();
-        context.getTokenHandler().handleToken(token, context);
-        state.setState(0);
-        state.setStringBuilder(null);
+        final TokenState state = context.state;
+        context.tokenHandler.handleToken(token, context);
+        state.state = 0;
+        state.stringBuilder = null;
     }
 
-    private static void invokeState(final String className, final CodeAttribute c, final IdentityHashMap<State, AtomicReference<BranchEnd>> ends, final State s) {
+    private static void invokeState(final String className, final CodeAttribute c, final IdentityHashMap<State, AtomicReference<BranchEnd>> ends, final State s, final CodeLocation start) {
         c.branchEnd(ends.get(s).get());
-        c.invokestatic(className, "state" + s.stateno, "(B" + DescriptorUtils.makeDescriptor(TokenContext.class) + ")V");
-        c.returnInstruction();
+        c.invokestatic(className, "state" + s.stateno, "([BII" + DescriptorUtils.makeDescriptor(TokenContext.class) + ")I");
+        c.iload(2);
+        c.iadd();
+        c.istore(2);
+        c.gotoInstruction(start);
     }
 
     private static void addStates(final State initial, final String value, final List<State> allStates) {

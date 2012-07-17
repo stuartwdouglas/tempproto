@@ -23,9 +23,8 @@
 package org.httpparser;
 
 /**
- *
  * The current state of the tokenizer state machine. This class is mutable and not thread safe.
- *
+ * <p/>
  * As the machine changes state this class is updated rather than allocating a new one each time.
  *
  * @author Stuart Douglas
@@ -37,24 +36,23 @@ public class TokenState {
     /**
      * The current state in the tokenizer state machine.
      */
-    private int state;
+    int state;
 
     /**
      * If this state is a prefix or terminal match state this is set to the string
      * that is a candiate to be matched
-     *
      */
-    private String current;
+    String current;
 
     /**
      * If this state is a prefix match state then this holds the current position in the string.
      */
-    private int pos;
+    int pos;
 
     /**
      * If this is in {@link #NO_STATE} then this holds the current token that has been read so far.
      */
-    private StringBuilder stringBuilder;
+    StringBuilder stringBuilder;
 
     public TokenState() {
         this.state = 0;
@@ -67,35 +65,35 @@ public class TokenState {
         this.current = null;
     }
 
-    public void setPos(final int pos) {
+    public final void setPos(final int pos) {
         this.pos = pos;
     }
 
-    public int getState() {
+    public final int getState() {
         return state;
     }
 
-    public String getCurrent() {
+    public final String getCurrent() {
         return current;
     }
 
-    public int getPos() {
+    public final int getPos() {
         return pos;
     }
 
-    public void setState(final int state) {
+    public final void setState(final int state) {
         this.state = state;
     }
 
-    public void setCurrent(final String current) {
+    public final void setCurrent(final String current) {
         this.current = current;
     }
 
-    public StringBuilder getStringBuilder() {
+    public final StringBuilder getStringBuilder() {
         return stringBuilder;
     }
 
-    public void setStringBuilder(final StringBuilder stringBuilder) {
+    public final void setStringBuilder(final StringBuilder stringBuilder) {
         this.stringBuilder = stringBuilder;
     }
 }

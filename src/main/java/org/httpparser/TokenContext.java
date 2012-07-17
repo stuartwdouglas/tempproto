@@ -27,9 +27,9 @@ package org.httpparser;
  */
 public final class TokenContext {
 
-    private TokenState state;
+    TokenState state;
 
-    private TokenHandler tokenHandler;
+    TokenHandler tokenHandler;
 
     public TokenContext(final TokenState state, final TokenHandler tokenHandler) {
         this.state = state;

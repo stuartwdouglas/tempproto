@@ -88,23 +88,39 @@ public class SimpleTest {
             "Via",
             "Warning",
             "WWW-Authenticate"};
+
     @Test
     public void test() {
 
 
-
         final Tokenizer parser = TokenizerGenerator.createTokenizer(VALUES);
-        final List<String> tokens = new ArrayList<>();
-        final TokenContext context = new TokenContext(new TokenState(0), new TokenHandler() {
-            @Override
-            public void handleToken(final String token, final TokenContext tokenContext) {
-                tokens.add(token);
-            }
-        });
+
         byte[] in = "PUT POST   PU  ggg PUTmore ".getBytes();
-        for(int i = 0; i< in.length; ++i) {
-            parser.handle(in[i], context);
+        List<String> tokens = null;
+        for (int j = 0; j < 10000000; ++j) {
+            tokens = new ArrayList<>();
+            final List<String> t = tokens;
+            final TokenContext context = new TokenContext(new TokenState(0), new TokenHandler() {
+                @Override
+                public void handleToken(final String token, final TokenContext tokenContext) {
+                    t.add(token);
+                }
+            });
+            parser.handle(in, 0, in.length, context);
         }
+        long t = System.currentTimeMillis();
+        for (int j = 0; j < 100000000; ++j) {
+            tokens = new ArrayList<>();
+            final List<String> r = tokens;
+            final TokenContext context = new TokenContext(new TokenState(0), new TokenHandler() {
+                @Override
+                public void handleToken(final String token, final TokenContext tokenContext) {
+                    r.add(token);
+                }
+            });
+            parser.handle(in,0, in.length, context);
+        }
+
         final String[] expected = {"PUT", "POST", "PU",  "ggg", "PUTmore" };
         Assert.assertEquals(Arrays.asList(expected), tokens);
         Assert.assertSame("PUT", tokens.get(0));
@@ -112,6 +128,9 @@ public class SimpleTest {
         Assert.assertNotSame("PU", tokens.get(2));
         Assert.assertNotSame("ggg", tokens.get(3));
         Assert.assertNotSame("PUTmore", tokens.get(4));
+
+
+        throw new RuntimeException("took " + (System.currentTimeMillis() - t));
     }
 
 

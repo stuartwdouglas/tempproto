@@ -27,6 +27,6 @@ package org.httpparser;
  */
 public interface Tokenizer {
 
-    void handle(final byte read, final TokenContext context);
+    void handle(final byte[] read, int pos, int length, final TokenContext context);
 
 }
