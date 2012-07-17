@@ -29,6 +29,6 @@ package org.httpparser;
  */
 public interface TokenHandler {
 
-    void handleToken(final String token, final TokenContext tokenContext);
+    boolean handleToken(final String token);
 
 }

@@ -27,12 +27,15 @@ package org.httpparser;
  * <p/>
  * As the machine changes state this class is updated rather than allocating a new one each time.
  *
+ * fields are not private to allow for efficient putfield / getfield access
+ *
  * @author Stuart Douglas
  */
 public class TokenState {
 
     public static final int NO_STATE = -1;
     public static final int PREFIX_MATCH = -2;
+
     /**
      * The current state in the tokenizer state machine.
      */
@@ -58,42 +61,5 @@ public class TokenState {
         this.state = 0;
         this.current = null;
         this.pos = 0;
-    }
-
-    public TokenState(final int state) {
-        this.state = state;
-        this.current = null;
-    }
-
-    public final void setPos(final int pos) {
-        this.pos = pos;
-    }
-
-    public final int getState() {
-        return state;
-    }
-
-    public final String getCurrent() {
-        return current;
-    }
-
-    public final int getPos() {
-        return pos;
-    }
-
-    public final void setState(final int state) {
-        this.state = state;
-    }
-
-    public final void setCurrent(final String current) {
-        this.current = current;
-    }
-
-    public final StringBuilder getStringBuilder() {
-        return stringBuilder;
-    }
-
-    public final void setStringBuilder(final StringBuilder stringBuilder) {
-        this.stringBuilder = stringBuilder;
     }
 }

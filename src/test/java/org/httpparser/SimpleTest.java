@@ -22,6 +22,7 @@
 
 package org.httpparser;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -95,8 +96,9 @@ public class SimpleTest {
 
         final Tokenizer parser = TokenizerGenerator.createTokenizer(VALUES);
 
-        byte[] in = "PUT POST   PU  ggg PUTmore ".getBytes();
-        List<String> tokens = null;
+        byte[] in = "PUT POST PU  ggg PUTmore ".getBytes();
+        //byte[] in = "PUT ".getBytes();
+        /*List<String> tokens = null;
         for (int j = 0; j < 10000000; ++j) {
             tokens = new ArrayList<>();
             final List<String> t = tokens;
@@ -119,7 +121,17 @@ public class SimpleTest {
                 }
             });
             parser.handle(in,0, in.length, context);
-        }
+        }*/
+
+        final List<String> tokens = new ArrayList<>();
+        final TokenState context = new TokenState();
+        parser.handle(ByteBuffer.wrap(in), in.length, context, new TokenHandler() {
+            @Override
+            public boolean handleToken(final String token) {
+                tokens.add(token);
+                return true;
+            }
+        });
 
         final String[] expected = {"PUT", "POST", "PU",  "ggg", "PUTmore" };
         Assert.assertEquals(Arrays.asList(expected), tokens);
@@ -130,7 +142,7 @@ public class SimpleTest {
         Assert.assertNotSame("PUTmore", tokens.get(4));
 
 
-        throw new RuntimeException("took " + (System.currentTimeMillis() - t));
+        //throw new RuntimeException("took " + (System.currentTimeMillis() - t));
     }
 
 
