@@ -23,13 +23,14 @@
 package org.httpparser;
 
 import java.lang.reflect.Modifier;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -59,6 +60,7 @@ public class TokenizerGenerator {
     private static final int STATE_POS_VAR = 6;
     private static final int STATE_CURRENT_VAR = 7;
     private static final int STATE_STRING_BUILDER_VAR = 8;
+    private static final int BYTE_POS_VAR = 9;
 
     public static Tokenizer createTokenizer(final String[] values) {
         final String className = Tokenizer.class.getName() + "$$" + nameCounter.incrementAndGet();
@@ -83,7 +85,7 @@ public class TokenizerGenerator {
         }
         final int noStates = stateCounter.get();
 
-        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "I", DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(TokenHandler.class));
+        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "I", "[B", "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(TokenHandler.class));
         writeHandle(handle.getCodeAttribute(), initial, allStates, noStates);
 
         final Class<Tokenizer> cls = (Class<Tokenizer>) file.define(TokenizerGenerator.class.getClassLoader());
@@ -144,8 +146,9 @@ public class TokenizerGenerator {
         c.astore(STATE_CURRENT_VAR);
         c.getfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
         c.astore(STATE_STRING_BUILDER_VAR);
+        c.iconst(0);
+        c.istore(BYTE_POS_VAR);
 
-        final CodeLocation initialState = c.mark();
         c.iload(BYTES_REMAINING_VAR);
         final BranchEnd nonZero = c.ifne();
 
@@ -185,7 +188,7 @@ public class TokenizerGenerator {
         //return code
         //code that synchronizes the state object and returns
         c.setupFrame(DescriptorUtils.makeDescriptor("fakeclass"),
-                DescriptorUtils.makeDescriptor(ByteBuffer.class.getName()),
+                "[B",
                 "I",
                 DescriptorUtils.makeDescriptor(TokenState.class),
                 DescriptorUtils.makeDescriptor(TokenHandler.class),
@@ -218,7 +221,9 @@ public class TokenizerGenerator {
         handleReturnIfNoMoreBytes(c, returnCode);
         //load 3 copies of the current byte into the stack
         c.aload(BYTE_BUFFER_VAR);
-        c.invokevirtual(ByteBuffer.class.getName(), "get", "()B");
+        c.iload(BYTE_POS_VAR);
+        c.baload();
+        c.iinc(BYTE_POS_VAR, 1);
         c.dup();
         c.dup();
 
@@ -288,7 +293,7 @@ public class TokenizerGenerator {
         //decrease the available bytes
         c.pop2();
         c.pop();
-        tokenDone(c, initialState);
+        tokenDone(c, initial);
 
         c.branchEnd(correctLength);
 
@@ -298,7 +303,7 @@ public class TokenizerGenerator {
         //TODO: exit if it returns null
         c.pop2();
         c.pop();
-        tokenDone(c, initialState);
+        tokenDone(c, initial);
 
 
         //nostate
@@ -311,7 +316,9 @@ public class TokenizerGenerator {
 
         //load 2 copies of the current byte into the stack
         c.aload(BYTE_BUFFER_VAR);
-        c.invokevirtual(ByteBuffer.class.getName(), "get", "()B");
+        c.iload(BYTE_POS_VAR);
+        c.baload();
+        c.iinc(BYTE_POS_VAR, 1);
         c.dup();
         c.iinc(BYTES_REMAINING_VAR, -1);
 
@@ -341,13 +348,13 @@ public class TokenizerGenerator {
         c.invokeinterface(TokenHandler.class.getName(), "handleToken", "(Ljava/lang/String;)Z");
         //TODO: exit if it returns null
         c.pop2();
-        tokenDone(c, initialState);
+        tokenDone(c, initial);
 
 
-        invokeState(c, ends.get(initial).get(), initial, initialState, noStateLoop, prefixLoop);
+        invokeState(c, ends.get(initial).get(), initial, initial, noStateLoop, prefixLoop);
         for (final State s : states) {
             if (s.stateno >= 0) {
-                invokeState(c, ends.get(s).get(), s, initialState, noStateLoop, prefixLoop);
+                invokeState(c, ends.get(s).get(), s, initial, noStateLoop, prefixLoop);
             }
         }
     }
@@ -357,12 +364,12 @@ public class TokenizerGenerator {
         c.ifEq(returnCode); //go back to the start if we have not run out of bytes
     }
 
-    private static void tokenDone(final CodeAttribute c, final CodeLocation prefixLoop) {
+    private static void tokenDone(final CodeAttribute c, final State initialState) {
         c.iconst(0);
         c.istore(CURRENT_STATE_VAR);
 
         c.iload(BYTES_REMAINING_VAR);
-        c.ifne(prefixLoop); //go back to the start if we have not run out of bytes
+        initialState.ifne(c); //go back to the start if we have not run out of bytes
         c.aload(TOKEN_STATE_VAR);
         c.iconst(0);
         c.putfield(TokenState.class.getName(), "state", "I");
@@ -370,12 +377,15 @@ public class TokenizerGenerator {
         c.returnInstruction();
     }
 
-    private static void invokeState(final CodeAttribute c, BranchEnd methodState, final State currentState, final CodeLocation start, final CodeLocation noStateStart, final CodeLocation prefixStart) {
+    private static void invokeState(final CodeAttribute c, BranchEnd methodState, final State currentState, final State initialState, final CodeLocation noStateStart, final CodeLocation prefixStart) {
         c.branchEnd(methodState);
+        currentState.mark(c);
 
         //load 2 copies of the current byte into the stack
         c.aload(BYTE_BUFFER_VAR);
-        c.invokevirtual(ByteBuffer.class.getName(), "get", "()B");
+        c.iload(BYTE_POS_VAR);
+        c.baload();
+        c.iinc(BYTE_POS_VAR, 1);
         c.dup();
         c.iinc(BYTES_REMAINING_VAR, -1);
 
@@ -396,9 +406,9 @@ public class TokenizerGenerator {
             c.invokeinterface(TokenHandler.class.getName(), "handleToken", "(Ljava/lang/String;)Z");
             //TODO: exit if it returns null
             c.pop();
-            tokenDone(c, start);
+            tokenDone(c, initialState);
         }
-        c.gotoInstruction(start);
+        initialState.jumpTo(c);
 
         final BranchEnd defaultSetup = s.getDefaultBranchEnd().get();
         c.branchEnd(defaultSetup);
@@ -433,7 +443,7 @@ public class TokenizerGenerator {
             } else {
                 c.iconst(state.stateno);
                 c.istore(CURRENT_STATE_VAR);
-                c.gotoInstruction(start);
+                state.jumpTo(c);
             }
         }
     }
@@ -463,6 +473,8 @@ public class TokenizerGenerator {
         final byte value;
         final String soFar;
         final Map<Byte, State> next = new HashMap<Byte, State>();
+        private final Set<BranchEnd> branchEnds = new HashSet<BranchEnd>();
+        private CodeLocation location;
 
         private State(final byte value, final String soFar) {
             this.value = value;
@@ -472,6 +484,29 @@ public class TokenizerGenerator {
         @Override
         public int compareTo(final State o) {
             return stateno.compareTo(o.stateno);
+        }
+
+        void mark(final CodeAttribute ca) {
+            location = ca.mark();
+            for(BranchEnd br : branchEnds) {
+                ca.branchEnd(br);
+            }
+        }
+
+        void jumpTo(final CodeAttribute ca) {
+            if(location == null) {
+                branchEnds.add(ca.gotoInstruction());
+            } else {
+                ca.gotoInstruction(location);
+            }
+        }
+
+        void ifne(final CodeAttribute ca) {
+            if(location == null) {
+                branchEnds.add(ca.ifne());
+            } else {
+                ca.ifne(location);
+            }
         }
     }
 }

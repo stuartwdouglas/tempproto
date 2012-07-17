@@ -22,7 +22,6 @@
 
 package org.httpparser;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -90,42 +89,17 @@ public class SimpleTest {
             "Warning",
             "WWW-Authenticate"};
 
-    @Test
+    //@Test
     public void test() {
 
 
         final Tokenizer parser = TokenizerGenerator.createTokenizer(VALUES);
 
-        byte[] in = "PUT POST PU  ggg PUTmore ".getBytes();
-        //byte[] in = "PUT ".getBytes();
-        /*List<String> tokens = null;
-        for (int j = 0; j < 10000000; ++j) {
-            tokens = new ArrayList<>();
-            final List<String> t = tokens;
-            final TokenContext context = new TokenContext(new TokenState(0), new TokenHandler() {
-                @Override
-                public void handleToken(final String token, final TokenContext tokenContext) {
-                    t.add(token);
-                }
-            });
-            parser.handle(in, 0, in.length, context);
-        }
-        long t = System.currentTimeMillis();
-        for (int j = 0; j < 100000000; ++j) {
-            tokens = new ArrayList<>();
-            final List<String> r = tokens;
-            final TokenContext context = new TokenContext(new TokenState(0), new TokenHandler() {
-                @Override
-                public void handleToken(final String token, final TokenContext tokenContext) {
-                    r.add(token);
-                }
-            });
-            parser.handle(in,0, in.length, context);
-        }*/
 
+        byte[] in = "PUT POST   PU  ggg PUTmore ".getBytes();
         final List<String> tokens = new ArrayList<>();
         final TokenState context = new TokenState();
-        parser.handle(ByteBuffer.wrap(in), in.length, context, new TokenHandler() {
+        parser.handle(in, in.length, context, new TokenHandler() {
             @Override
             public boolean handleToken(final String token) {
                 tokens.add(token);
@@ -142,8 +116,41 @@ public class SimpleTest {
         Assert.assertNotSame("PUTmore", tokens.get(4));
 
 
-        //throw new RuntimeException("took " + (System.currentTimeMillis() - t));
     }
 
+    @Test
+    public void speedTest() {
+        final Tokenizer parser = TokenizerGenerator.createTokenizer(VALUES);
+
+        byte[] in = "PUT POST   PU  ggg PUTmore Accept-Charset Accept-Encoding Accept-Language Accept-Ranges ".getBytes();
+        //byte[] in = "PUT ".getBytes();
+        List<String> tokens = null;
+        for (int j = 0; j < 10000000; ++j) {
+            tokens = new ArrayList<>();
+            final List<String> t = tokens;
+            final TokenState context = new TokenState();
+            parser.handle(in, in.length, context, new TokenHandler() {
+                @Override
+                public boolean handleToken(final String token) {
+                    t.add(token);
+                    return true;
+                }
+            });
+        }
+        long t = System.currentTimeMillis();
+        for (int j = 0; j < 100000000; ++j) {
+            tokens = new ArrayList<>();
+            final List<String> r = tokens;
+            final TokenState context = new TokenState();
+            parser.handle(in, in.length, context, new TokenHandler() {
+                @Override
+                public boolean handleToken(final String token) {
+                    r.add(token);
+                    return true;
+                }
+            });
+        }
+        throw new RuntimeException("took " + (System.currentTimeMillis() - t));
+    }
 
 }
