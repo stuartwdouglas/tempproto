@@ -99,13 +99,7 @@ public class SimpleTest {
         byte[] in = "PUT POST   PU  ggg PUTmore ".getBytes();
         final List<String> tokens = new ArrayList<>();
         final TokenState context = new TokenState();
-        parser.handle(in, in.length, context, new TokenHandler() {
-            @Override
-            public boolean handleToken(final String token) {
-                tokens.add(token);
-                return true;
-            }
-        });
+        parser.handle(in, in.length, context, tokens);
 
         final String[] expected = {"PUT", "POST", "PU",  "ggg", "PUTmore" };
         Assert.assertEquals(Arrays.asList(expected), tokens);
@@ -128,29 +122,34 @@ public class SimpleTest {
         for (int j = 0; j < 10000000; ++j) {
             tokens = new ArrayList<>();
             final List<String> t = tokens;
+            //stringBuilder(in, new TokenHandler(tokens));
             final TokenState context = new TokenState();
-            parser.handle(in, in.length, context, new TokenHandler() {
-                @Override
-                public boolean handleToken(final String token) {
-                    t.add(token);
-                    return true;
-                }
-            });
+            parser.handle(in, in.length, context, tokens);
         }
         long t = System.currentTimeMillis();
         for (int j = 0; j < 100000000; ++j) {
             tokens = new ArrayList<>();
             final List<String> r = tokens;
+            //stringBuilder(in, tokens);
             final TokenState context = new TokenState();
-            parser.handle(in, in.length, context, new TokenHandler() {
-                @Override
-                public boolean handleToken(final String token) {
-                    r.add(token);
-                    return true;
-                }
-            });
+            parser.handle(in, in.length, context, tokens);
         }
         throw new RuntimeException("took " + (System.currentTimeMillis() - t));
+    }
+
+    void stringBuilder(byte[] in, final TokenHandler handler) {
+        StringBuilder b = new StringBuilder();
+        for(int i = 0; i < in.length; ++i){
+            char c = (char) in[i];
+            if(c == ' ') {
+                if(b.length() != 0) {
+                    handler.handleToken(b.toString());
+                    b = new StringBuilder();
+                }
+            } else {
+                b.append(c);
+            }
+        }
     }
 
 }

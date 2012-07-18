@@ -22,13 +22,24 @@
 
 package org.httpparser;
 
+import java.util.List;
+
 /**
  * Class that takes a taken from a given tokenizer.
  *
  * @author Stuart Douglas
  */
-public interface TokenHandler {
+public final class TokenHandler {
 
-    boolean handleToken(final String token);
+    private final List<String> tokens;
+
+    public TokenHandler(final List<String> tokens) {
+        this.tokens = tokens;
+    }
+
+    final boolean handleToken(final String token){
+        tokens.add(token);
+        return false;
+    }
 
 }

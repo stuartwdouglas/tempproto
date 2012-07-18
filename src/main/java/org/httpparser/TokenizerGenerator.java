@@ -61,6 +61,7 @@ public class TokenizerGenerator {
     private static final int STATE_CURRENT_VAR = 7;
     private static final int STATE_STRING_BUILDER_VAR = 8;
     private static final int BYTE_POS_VAR = 9;
+    private static final int STATE_TERMINAL_STRING_VAR = 10;
 
     public static Tokenizer createTokenizer(final String[] values) {
         final String className = Tokenizer.class.getName() + "$$" + nameCounter.incrementAndGet();
@@ -71,6 +72,9 @@ public class TokenizerGenerator {
         ctor.getCodeAttribute().invokespecial(Object.class.getName(), "<init>", "()V");
         ctor.getCodeAttribute().returnInstruction();
 
+
+        final ClassMethod sctor = file.addMethod(AccessFlag.PUBLIC | AccessFlag.STATIC, "<clinit>", "V");
+
         //list of all states except the initial
         final List<State> allStates = new ArrayList<State>();
         final State initial = new State((byte) 0, "");
@@ -79,14 +83,17 @@ public class TokenizerGenerator {
         }
         //we want initial to be number 0
         final AtomicInteger stateCounter = new AtomicInteger(-1);
-        setupStateNo(initial, stateCounter);
+        final AtomicInteger fieldCounter = new AtomicInteger(1);
+        setupStateNo(initial, stateCounter, fieldCounter);
         for (State state : allStates) {
-            setupStateNo(state, stateCounter);
+            setupStateNo(state, stateCounter, fieldCounter);
+            createStateField(state, file, sctor.getCodeAttribute());
         }
+        sctor.getCodeAttribute().returnInstruction();
         final int noStates = stateCounter.get();
 
-        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "I", "[B", "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(TokenHandler.class));
-        writeHandle(handle.getCodeAttribute(), initial, allStates, noStates);
+        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "I", "[B", "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(List.class));
+        writeHandle(className, handle.getCodeAttribute(), initial, allStates, noStates);
 
         final Class<Tokenizer> cls = (Class<Tokenizer>) file.define(TokenizerGenerator.class.getClassLoader());
         try {
@@ -98,11 +105,22 @@ public class TokenizerGenerator {
         }
     }
 
+    private static void createStateField(final State state, final ClassFile file, final CodeAttribute sc) {
+        if(state.fieldName != null) {
+            file.addField(AccessFlag.STATIC | AccessFlag.FINAL | AccessFlag.PRIVATE, state.fieldName, "[B");
+            sc.ldc(state.terminalState);
+            sc.ldc("ISO-8859-1");
+            sc.invokevirtual(String.class.getName(), "getBytes", "(Ljava/lang/String;)[B");
+            sc.putstatic(file.getName(), state.fieldName, "[B");
+        }
+    }
 
-    private static void setupStateNo(final State state, final AtomicInteger stateCounter) {
+
+    private static void setupStateNo(final State state, final AtomicInteger stateCounter, final AtomicInteger fieldCounter) {
         if (state.next.isEmpty()) {
             state.stateno = TokenState.PREFIX_MATCH;
             state.terminalState = state.soFar;
+            state.fieldName = "STATE_BYTES_" + fieldCounter.incrementAndGet();
         } else if (state.next.size() == 1) {
             String terminal = null;
             State s = state.next.values().iterator().next();
@@ -118,6 +136,7 @@ public class TokenizerGenerator {
             if (terminal != null) {
                 state.stateno = TokenState.PREFIX_MATCH;
                 state.terminalState = terminal;
+                state.fieldName = "STATE_BYTES_" + fieldCounter.incrementAndGet();
             } else {
                 state.stateno = stateCounter.incrementAndGet();
             }
@@ -126,7 +145,7 @@ public class TokenizerGenerator {
         }
     }
 
-    private static void writeHandle(final CodeAttribute c, final State initial, final List<State> allStates, int noStates) {
+    private static void writeHandle(final String className, final CodeAttribute c, final State initial, final List<State> allStates, int noStates) {
 
         final List<State> states = new ArrayList<State>();
         states.add(initial);
@@ -191,7 +210,7 @@ public class TokenizerGenerator {
                 "[B",
                 "I",
                 DescriptorUtils.makeDescriptor(TokenState.class),
-                DescriptorUtils.makeDescriptor(TokenHandler.class),
+                DescriptorUtils.makeDescriptor(List.class),
                 "I",
                 "I",
                 DescriptorUtils.makeDescriptor(String.class),
@@ -288,7 +307,7 @@ public class TokenizerGenerator {
         c.iconst(0);
         c.iload(STATE_POS_VAR);
         c.invokevirtual(String.class.getName(), "substring", "(II)Ljava/lang/String;");
-        c.invokeinterface(TokenHandler.class.getName(), "handleToken", "(Ljava/lang/String;)Z");
+        c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
         //TODO: exit if it returns null
         //decrease the available bytes
         c.pop2();
@@ -299,7 +318,7 @@ public class TokenizerGenerator {
 
         c.aload(TOKEN_HANDLER_VAR);
         c.aload(STATE_CURRENT_VAR);
-        c.invokeinterface(TokenHandler.class.getName(), "handleToken", "(Ljava/lang/String;)Z");
+        c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
         //TODO: exit if it returns null
         c.pop2();
         c.pop();
@@ -308,9 +327,6 @@ public class TokenizerGenerator {
 
         //nostate
         c.branchEnd(noState.get());
-        c.aload(TOKEN_STATE_VAR);
-        c.getfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
-        c.astore(STATE_STRING_BUILDER_VAR);
         c.branchEnd(prefixToNoState);
         CodeLocation noStateLoop = c.mark();
 
@@ -345,16 +361,16 @@ public class TokenizerGenerator {
         c.aload(TOKEN_HANDLER_VAR);
         c.aload(STATE_STRING_BUILDER_VAR);
         c.invokevirtual(StringBuilder.class.getName(), "toString", "()Ljava/lang/String;");
-        c.invokeinterface(TokenHandler.class.getName(), "handleToken", "(Ljava/lang/String;)Z");
+        c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
         //TODO: exit if it returns null
         c.pop2();
         tokenDone(c, initial);
 
 
-        invokeState(c, ends.get(initial).get(), initial, initial, noStateLoop, prefixLoop);
+        invokeState(className,  c, ends.get(initial).get(), initial, initial, noStateLoop, prefixLoop);
         for (final State s : states) {
             if (s.stateno >= 0) {
-                invokeState(c, ends.get(s).get(), s, initial, noStateLoop, prefixLoop);
+                invokeState(className, c, ends.get(s).get(), s, initial, noStateLoop, prefixLoop);
             }
         }
     }
@@ -372,12 +388,10 @@ public class TokenizerGenerator {
         initialState.ifne(c); //go back to the start if we have not run out of bytes
         c.aload(TOKEN_STATE_VAR);
         c.iconst(0);
-        c.putfield(TokenState.class.getName(), "state", "I");
-        c.iconst(0);
         c.returnInstruction();
     }
 
-    private static void invokeState(final CodeAttribute c, BranchEnd methodState, final State currentState, final State initialState, final CodeLocation noStateStart, final CodeLocation prefixStart) {
+    private static void invokeState(final String className, final CodeAttribute c, BranchEnd methodState, final State currentState, final State initialState, final CodeLocation noStateStart, final CodeLocation prefixStart) {
         c.branchEnd(methodState);
         currentState.mark(c);
 
@@ -403,7 +417,7 @@ public class TokenizerGenerator {
         if (!currentState.soFar.equals("")) {
             c.aload(TOKEN_HANDLER_VAR);
             c.ldc(currentState.soFar);
-            c.invokeinterface(TokenHandler.class.getName(), "handleToken", "(Ljava/lang/String;)Z");
+            c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
             //TODO: exit if it returns null
             c.pop();
             tokenDone(c, initialState);
@@ -470,6 +484,7 @@ public class TokenizerGenerator {
 
         Integer stateno;
         String terminalState;
+        String fieldName;
         final byte value;
         final String soFar;
         final Map<Byte, State> next = new HashMap<Byte, State>();
@@ -488,13 +503,13 @@ public class TokenizerGenerator {
 
         void mark(final CodeAttribute ca) {
             location = ca.mark();
-            for(BranchEnd br : branchEnds) {
+            for (BranchEnd br : branchEnds) {
                 ca.branchEnd(br);
             }
         }
 
         void jumpTo(final CodeAttribute ca) {
-            if(location == null) {
+            if (location == null) {
                 branchEnds.add(ca.gotoInstruction());
             } else {
                 ca.gotoInstruction(location);
@@ -502,7 +517,7 @@ public class TokenizerGenerator {
         }
 
         void ifne(final CodeAttribute ca) {
-            if(location == null) {
+            if (location == null) {
                 branchEnds.add(ca.ifne());
             } else {
                 ca.ifne(location);

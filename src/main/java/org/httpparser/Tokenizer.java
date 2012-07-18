@@ -22,6 +22,8 @@
 
 package org.httpparser;
 
+import java.util.List;
+
 /**
  * @author Stuart Douglas
  */
@@ -35,6 +37,6 @@ public interface Tokenizer {
      * @param handler The handler that recieves the tokens
      * @return The number of bytes remaining, i.e. bytesRemaining - bytes read
      */
-    int handle(byte[] buffer, int bytesRemaining, final TokenState currentState, final TokenHandler handler);
+    int handle(byte[] buffer, int bytesRemaining, final TokenState currentState, final List<String> tokens);
 
 }
