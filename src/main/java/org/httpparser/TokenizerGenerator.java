@@ -96,6 +96,7 @@ public class TokenizerGenerator {
         writeHandle(className, handle.getCodeAttribute(), initial, allStates, noStates);
 
         final Class<Tokenizer> cls = (Class<Tokenizer>) file.define(TokenizerGenerator.class.getClassLoader());
+        Compiler.compileClass(cls);
         try {
             return cls.newInstance();
         } catch (InstantiationException e) {
@@ -405,34 +406,32 @@ public class TokenizerGenerator {
         //load 2 copies of the current byte into the stack
         c.aload(BYTE_BUFFER_VAR);
         c.iload(BYTE_POS_VAR);
-        c.baload();
         c.iinc(BYTE_POS_VAR, 1);
-        c.dup();
         c.iinc(BYTES_REMAINING_VAR, -1);
-
-        final LookupSwitchBuilder s = new LookupSwitchBuilder();
-        final AtomicReference<BranchEnd> tokenEnd = s.add((byte) ' ');
+        c.baload();
+        c.dup();
+        final AtomicReference<BranchEnd> tokenEnd;
         final Map<State, AtomicReference<BranchEnd>> ends = new IdentityHashMap<State, AtomicReference<BranchEnd>>();
-        for (final State state : currentState.next.values()) {
-            ends.put(state, s.add(state.value));
-        }
-        c.lookupswitch(s);
+        if(currentState.next.size() > 6) {
+            final LookupSwitchBuilder s = new LookupSwitchBuilder();
+            tokenEnd = s.add((byte) ' ');
+            for (final State state : currentState.next.values()) {
+                ends.put(state, s.add(state.value));
+            }
+            c.lookupswitch(s);
+            final BranchEnd defaultSetup = s.getDefaultBranchEnd().get();
+            c.branchEnd(defaultSetup);
+        } else {
+            for (State state : currentState.next.values()) {
+                c.iconst(state.value);
+                ends.put(state, new AtomicReference<BranchEnd>(c.ifIcmpeq()));
+                c.dup();
+            }
+            c.iconst(' ');
+            tokenEnd = new AtomicReference<>(c.ifIcmpeq());
 
-        //now we write out tokenEnd
-        c.branchEnd(tokenEnd.get());
-        c.pop(); //opo off our extra byte, we don't need it
-        if (!currentState.soFar.equals("")) {
-            c.aload(TOKEN_HANDLER_VAR);
-            c.ldc(currentState.soFar);
-            c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
-            //TODO: exit if it returns null
-            c.pop();
-            tokenDone(c, initialState);
         }
-        initialState.jumpTo(c);
 
-        final BranchEnd defaultSetup = s.getDefaultBranchEnd().get();
-        c.branchEnd(defaultSetup);
 
         c.iconst(TokenState.NO_STATE);
         c.istore(CURRENT_STATE_VAR);
@@ -446,6 +445,19 @@ public class TokenizerGenerator {
         c.invokevirtual(StringBuilder.class.getName(), "append", "(C)Ljava/lang/StringBuilder;");
         c.astore(STATE_STRING_BUILDER_VAR);
         c.gotoInstruction(noStateStart);
+
+        //now we write out tokenEnd
+        c.branchEnd(tokenEnd.get());
+        c.pop(); //opo off our extra byte, we don't need it
+        if (!currentState.soFar.equals("")) {
+            c.aload(TOKEN_HANDLER_VAR);
+            c.ldc(currentState.soFar);
+            c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
+            //TODO: exit if it returns null
+            c.pop();
+            tokenDone(c, initialState);
+        }
+        initialState.jumpTo(c);
 
 
         for (Map.Entry<State, AtomicReference<BranchEnd>> e : ends.entrySet()) {
