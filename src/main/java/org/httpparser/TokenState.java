@@ -47,6 +47,8 @@ public class TokenState {
      */
     String current;
 
+    byte[] currentBytes;
+
     /**
      * If this state is a prefix match state then this holds the current position in the string.
      */

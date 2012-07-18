@@ -61,7 +61,7 @@ public class TokenizerGenerator {
     private static final int STATE_CURRENT_VAR = 7;
     private static final int STATE_STRING_BUILDER_VAR = 8;
     private static final int BYTE_POS_VAR = 9;
-    private static final int STATE_TERMINAL_STRING_VAR = 10;
+    private static final int STATE_CURRENT_BYTES_VAR = 10;
 
     public static Tokenizer createTokenizer(final String[] values) {
         final String className = Tokenizer.class.getName() + "$$" + nameCounter.incrementAndGet();
@@ -106,7 +106,7 @@ public class TokenizerGenerator {
     }
 
     private static void createStateField(final State state, final ClassFile file, final CodeAttribute sc) {
-        if(state.fieldName != null) {
+        if (state.fieldName != null) {
             file.addField(AccessFlag.STATIC | AccessFlag.FINAL | AccessFlag.PRIVATE, state.fieldName, "[B");
             sc.ldc(state.terminalState);
             sc.ldc("ISO-8859-1");
@@ -157,12 +157,15 @@ public class TokenizerGenerator {
         c.dup();
         c.dup();
         c.dup();
+        c.dup();
         c.getfield(TokenState.class.getName(), "state", "I");
         c.istore(CURRENT_STATE_VAR);
         c.getfield(TokenState.class.getName(), "pos", "I");
         c.istore(STATE_POS_VAR);
         c.getfield(TokenState.class.getName(), "current", "Ljava/lang/String;");
         c.astore(STATE_CURRENT_VAR);
+        c.getfield(TokenState.class.getName(), "currentBytes", "[B");
+        c.astore(STATE_CURRENT_BYTES_VAR);
         c.getfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
         c.astore(STATE_STRING_BUILDER_VAR);
         c.iconst(0);
@@ -214,7 +217,9 @@ public class TokenizerGenerator {
                 "I",
                 "I",
                 DescriptorUtils.makeDescriptor(String.class),
-                DescriptorUtils.makeDescriptor(StringBuilder.class));
+                DescriptorUtils.makeDescriptor(StringBuilder.class),
+                "I",
+                "[B");
         CodeLocation returnCode = c.mark();
         c.aload(TOKEN_STATE_VAR);
         c.dup();
@@ -226,6 +231,8 @@ public class TokenizerGenerator {
         c.putfield(TokenState.class.getName(), "pos", "I");
         c.aload(STATE_CURRENT_VAR);
         c.putfield(TokenState.class.getName(), "current", DescriptorUtils.makeDescriptor(String.class));
+        c.aload(STATE_CURRENT_BYTES_VAR);
+        c.putfield(TokenState.class.getName(), "currentBytes", "[B");
         c.aload(STATE_STRING_BUILDER_VAR);
         c.putfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
         c.iload(CURRENT_STATE_VAR);
@@ -251,15 +258,15 @@ public class TokenizerGenerator {
         c.iconst(' ');
         BranchEnd prefixHandleSpace = c.ifIcmpeq();
         //check if we have overrun
-        c.aload(STATE_CURRENT_VAR);
-        c.invokevirtual(String.class.getName(), "length", "()I");
+        c.aload(STATE_CURRENT_BYTES_VAR);
+        c.arraylength();
         c.iload(STATE_POS_VAR);
         BranchEnd overrun = c.ifIcmpeq();
         //so we have not overrun
         //now check if the character matches
-        c.aload(STATE_CURRENT_VAR);
+        c.aload(STATE_CURRENT_BYTES_VAR);
         c.iload(STATE_POS_VAR);
-        c.invokevirtual(String.class.getName(), "charAt", "(I)C");
+        c.baload();
         c.isub();
         c.iconst(0); //just to make the stacks match
         c.swap();
@@ -297,8 +304,8 @@ public class TokenizerGenerator {
         c.iconst(0);
         c.istore(CURRENT_STATE_VAR);
 
-        c.aload(STATE_CURRENT_VAR);
-        c.invokevirtual(String.class.getName(), "length", "()I");
+        c.aload(STATE_CURRENT_BYTES_VAR);
+        c.arraylength();
         c.iload(STATE_POS_VAR);
         BranchEnd correctLength = c.ifIcmpeq();
 
@@ -367,8 +374,8 @@ public class TokenizerGenerator {
         tokenDone(c, initial);
 
 
-        invokeState(className,  c, ends.get(initial).get(), initial, initial, noStateLoop, prefixLoop);
-        for (final State s : states) {
+        invokeState(className, c, ends.get(initial).get(), initial, initial, noStateLoop, prefixLoop);
+        for (final State s : allStates) {
             if (s.stateno >= 0) {
                 invokeState(className, c, ends.get(s).get(), s, initial, noStateLoop, prefixLoop);
             }
@@ -451,6 +458,8 @@ public class TokenizerGenerator {
                 c.istore(CURRENT_STATE_VAR);
                 c.ldc(state.terminalState);
                 c.astore(STATE_CURRENT_VAR);
+                c.getstatic(className, state.fieldName, "[B");
+                c.astore(STATE_CURRENT_BYTES_VAR);
                 c.iconst(state.soFar.length());
                 c.istore(STATE_POS_VAR);
                 c.gotoInstruction(prefixStart);
