@@ -105,11 +105,6 @@ public class TokenizerParent {
                         stringBuilder.append(' ');
                         parseState = EAT_WHITESPACE;
                     } else {
-                        if(next != '\r') {
-                            parseState = NORMAL;
-                        } else {
-                            parseState = BEGIN_LINE_END;
-                        }
                         if (stringBuilder.length() != 0) {
                             //we have a header
                             String nextStandardHeader = builder.nextStandardHeader;
@@ -123,16 +118,17 @@ public class TokenizerParent {
                             state.state = TokenState.HEADER;
                             state.leftOver = next;
                             state.stringBuilder = null;
-                            break;
+                            return remaining;
                         } else {
                             state.state = TokenState.PARSE_COMPLETE;
-                            break;
+                            return remaining;
                         }
                     }
                     break;
                 }
             }
         }
+        state.parseState = parseState;
         return remaining;
     }
 }

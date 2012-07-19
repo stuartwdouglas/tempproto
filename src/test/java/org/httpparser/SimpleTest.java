@@ -37,7 +37,8 @@ public class SimpleTest {
 
     public static final String[] VERSIONS = {"HTTP/1.1", "HTTP/1.0"};
 
-    public static final String[] HEADER_VALUES = {"Accept",
+    public static final String[] HEADER_VALUES = {
+            "Accept",
             "Accept-Charset",
             "Accept-Encoding",
             "Accept-Language",
@@ -95,18 +96,18 @@ public class SimpleTest {
     public void test() {
         final Tokenizer parser = TokenizerGenerator.createTokenizer(VERBS, VERSIONS, HEADER_VALUES);
 
-        byte[] in = "GET /somepath HTTP/1.1\r\nHost: www.somehost.net\r\n\r\n".getBytes();
+        byte[] in = "GET /somepath HTTP/1.1\r\nHost:   www.somehost.net\r\nOtherHeader: some\r\n    value\r\n\r\n".getBytes();
         final TokenState context = new TokenState();
 
         HttpExchangeBuilder result = new HttpExchangeBuilder();
-
         parser.handle(ByteBuffer.wrap(in), in.length, context, result);
-
         Assert.assertSame("GET", result.verb);
         Assert.assertEquals("/somepath", result.path);
         Assert.assertSame("HTTP/1.1", result.httpVersion);
         Assert.assertTrue(result.standardHeaders.containsKey("Host"));
         Assert.assertEquals("www.somehost.net", result.standardHeaders.get("Host"));
+        Assert.assertTrue(result.otherHeaders.containsKey("OtherHeader"));
+        Assert.assertEquals("some value", result.otherHeaders.get("OtherHeader"));
     }
 
 
