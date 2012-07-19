@@ -22,7 +22,7 @@
 
 package org.httpparser;
 
-import java.util.List;
+import java.nio.ByteBuffer;
 
 /**
  * @author Stuart Douglas
@@ -32,11 +32,11 @@ public interface Tokenizer {
     /**
      *
      * @param buffer The byte buffer
-     * @param bytesRemaining The number of bytes remaining
+     * @param noBytes The number of bytes that can be read from the buffer
      * @param currentState The current token parsing state
-     * @param handler The handler that recieves the tokens
-     * @return The number of bytes remaining, i.e. bytesRemaining - bytes read
+     * @param builder The builder that receives the tokens
+     * @return The number of bytes remaining, i.e. noBytes - bytes read
      */
-    int handle(byte[] buffer, int bytesRemaining, final TokenState currentState, final List<String> tokens);
+    int handle(ByteBuffer buffer, int noBytes, final TokenState currentState, final HttpExchangeBuilder builder);
 
 }

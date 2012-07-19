@@ -33,13 +33,28 @@ package org.httpparser;
  */
 public class TokenState {
 
+    //state machine states
     public static final int NO_STATE = -1;
     public static final int PREFIX_MATCH = -2;
+
+
+    //parsing states
+    public static final int VERB = 0;
+    public static final int PATH = 1;
+    public static final int VERSION = 2;
+    public static final int HEADER = 3;
+    public static final int HEADER_VALUE = 4;
+    public static final int PARSE_COMPLETE = 5;
+
+    /**
+     * The actual state of request parsing
+     */
+    int state;
 
     /**
      * The current state in the tokenizer state machine.
      */
-    int state;
+    int parseState;
 
     /**
      * If this state is a prefix or terminal match state this is set to the string
@@ -47,6 +62,9 @@ public class TokenState {
      */
     String current;
 
+    /**
+     * The bytes version of {@link #current}
+     */
     byte[] currentBytes;
 
     /**
@@ -59,8 +77,18 @@ public class TokenState {
      */
     StringBuilder stringBuilder;
 
+    /**
+     * This has different meanings depending on the current state.
+     *
+     * In state {@link #HEADER} it is a the first character of the header, that was read by
+     * {@link #HEADER_VALUE} to see if this was a continuation.
+     *
+     * In state {@link #HEADER_VALUE} if represents the last character that was seen.
+     */
+    byte leftOver;
+
     public TokenState() {
-        this.state = 0;
+        this.parseState = 0;
         this.current = null;
         this.pos = 0;
     }

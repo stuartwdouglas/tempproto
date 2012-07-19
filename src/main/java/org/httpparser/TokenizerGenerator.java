@@ -23,6 +23,7 @@
 package org.httpparser;
 
 import java.lang.reflect.Modifier;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -55,46 +56,42 @@ public class TokenizerGenerator {
     private static final int BYTE_BUFFER_VAR = 1;
     private static final int BYTES_REMAINING_VAR = 2;
     private static final int TOKEN_STATE_VAR = 3;
-    private static final int TOKEN_HANDLER_VAR = 4;
+    private static final int HTTP_EXCHANGE_BUILDER = 4;
     private static final int CURRENT_STATE_VAR = 5;
     private static final int STATE_POS_VAR = 6;
     private static final int STATE_CURRENT_VAR = 7;
     private static final int STATE_STRING_BUILDER_VAR = 8;
-    private static final int BYTE_POS_VAR = 9;
-    private static final int STATE_CURRENT_BYTES_VAR = 10;
+    private static final int STATE_CURRENT_BYTES_VAR = 9;
+    private static final int STATE_LAST_CHAR_WAS_CARRIAGE_RETURN = 10;
 
-    public static Tokenizer createTokenizer(final String[] values) {
+    public static final String HANDLE_HTTP_VERB = "handleHttpVerbs";
+    public static final String HANDLE_PATH = "handlePath";
+    public static final String HANDLE_HTTP_VERSION = "handleHttpVersion";
+    public static final String HANDLE_HEADER = "handleHeader";
+    public static final String HANDLE_HEADER_VALUE = "handleHeaderValue";
+
+    public static Tokenizer createTokenizer(final String[] httpVerbs, String[] httpVersions, String[] standardHeaders) {
         final String className = Tokenizer.class.getName() + "$$" + nameCounter.incrementAndGet();
-        final ClassFile file = new ClassFile(className, "java.lang.Object", Tokenizer.class.getName());
+        final ClassFile file = new ClassFile(className, TokenizerParent.class.getName(), Tokenizer.class.getName());
 
         final ClassMethod ctor = file.addMethod(AccessFlag.PUBLIC, "<init>", "V");
         ctor.getCodeAttribute().aload(0);
-        ctor.getCodeAttribute().invokespecial(Object.class.getName(), "<init>", "()V");
+        ctor.getCodeAttribute().invokespecial(TokenizerParent.class.getName(), "<init>", "()V");
         ctor.getCodeAttribute().returnInstruction();
 
 
         final ClassMethod sctor = file.addMethod(AccessFlag.PUBLIC | AccessFlag.STATIC, "<clinit>", "V");
-
-        //list of all states except the initial
-        final List<State> allStates = new ArrayList<State>();
-        final State initial = new State((byte) 0, "");
-        for (String value : values) {
-            addStates(initial, value, allStates);
-        }
-        //we want initial to be number 0
-        final AtomicInteger stateCounter = new AtomicInteger(-1);
         final AtomicInteger fieldCounter = new AtomicInteger(1);
-        setupStateNo(initial, stateCounter, fieldCounter);
-        for (State state : allStates) {
-            setupStateNo(state, stateCounter, fieldCounter);
-            createStateField(state, file, sctor.getCodeAttribute());
-        }
+
+        createStateMachine(httpVerbs, className, file, sctor, fieldCounter, HANDLE_HTTP_VERB, new VerbStateMachine());
+        createStateMachine(httpVersions, className, file, sctor, fieldCounter, HANDLE_HTTP_VERSION, new VersionStateMachine());
+        createStateMachine(standardHeaders, className, file, sctor, fieldCounter, HANDLE_HEADER, new HeaderStateMachine());
+
+        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "I", DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class));
+        createHandleBody(className, handle);
+
+
         sctor.getCodeAttribute().returnInstruction();
-        final int noStates = stateCounter.get();
-
-        final ClassMethod handle = file.addMethod(Modifier.PUBLIC, "handle", "I", "[B", "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(List.class));
-        writeHandle(className, handle.getCodeAttribute(), initial, allStates, noStates);
-
         final Class<Tokenizer> cls = (Class<Tokenizer>) file.define(TokenizerGenerator.class.getClassLoader());
         Compiler.compileClass(cls);
         try {
@@ -104,6 +101,109 @@ public class TokenizerGenerator {
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static void createHandleBody(final String className, final ClassMethod handle) {
+        final CodeAttribute c = handle.getCodeAttribute();
+        c.aload(TOKEN_STATE_VAR);
+        c.getfield(TokenState.class.getName(), "state", "I");
+        final Set<BranchEnd> returnSet = new HashSet<>();
+        final TableSwitchBuilder builder = new TableSwitchBuilder(0, 4);
+        final AtomicReference<BranchEnd> verb = builder.add();
+        final AtomicReference<BranchEnd> path = builder.add();
+        final AtomicReference<BranchEnd> http = builder.add();
+        final AtomicReference<BranchEnd> header = builder.add();
+        final AtomicReference<BranchEnd> headerValue = builder.add();
+        c.tableswitch(builder);
+        c.branchEnd(verb.get());
+        c.aload(0);
+        c.loadMethodParameters();
+        c.invokespecial(className, HANDLE_HTTP_VERB, "I", new String[]{DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class)});
+        c.dup();
+        c.istore(BYTES_REMAINING_VAR);
+        returnSet.add(c.ifeq());
+        //we just fall through to the path
+        //we rely on the individual parsing methods to update the state as appropriate
+
+
+        c.branchEnd(path.get());
+        c.aload(0);
+        c.loadMethodParameters();
+        c.invokespecial(className, HANDLE_PATH, "I", new String[]{DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class)});
+        c.dup();
+        c.istore(BYTES_REMAINING_VAR);
+        returnSet.add(c.ifeq());
+
+
+        c.branchEnd(http.get());
+        c.aload(0);
+        c.loadMethodParameters();
+        c.invokespecial(className, HANDLE_HTTP_VERSION, "I", new String[]{DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class)});
+        c.dup();
+        c.istore(BYTES_REMAINING_VAR);
+        returnSet.add(c.ifeq());
+
+
+        c.branchEnd(header.get());
+        CodeLocation headerStart = c.mark();
+        c.aload(0);
+        c.loadMethodParameters();
+        c.invokespecial(className, HANDLE_HEADER, "I", new String[]{DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class)});
+        c.dup();
+        c.istore(BYTES_REMAINING_VAR);
+        returnSet.add(c.ifeq());
+
+        //it is possible that the header did not have a value
+        c.aload(TOKEN_STATE_VAR);
+        c.getfield(TokenState.class.getName(), "state", "I");
+        c.iconst(TokenState.PARSE_COMPLETE);
+        returnSet.add(c.ifIcmpeq());
+
+        c.branchEnd(headerValue.get());
+        c.aload(0);
+        c.loadMethodParameters();
+        c.invokespecial(className, HANDLE_HEADER_VALUE, "I", new String[]{DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class)});
+        c.dup();
+        c.istore(BYTES_REMAINING_VAR);
+        returnSet.add(c.ifeq());
+
+        c.aload(TOKEN_STATE_VAR);
+        c.getfield(TokenState.class.getName(), "state", "I");
+        c.iconst(TokenState.PARSE_COMPLETE);
+        returnSet.add(c.ifIcmpeq());
+
+        c.gotoInstruction(headerStart);
+
+        //all we need to do is return
+        for (final BranchEnd b : returnSet) {
+            c.branchEnd(b);
+        }
+        c.iload(BYTES_REMAINING_VAR);
+        c.returnInstruction();
+
+        stateNotFound(c, builder);
+
+    }
+
+    private static void createStateMachine(final String[] httpVerbs, final String className, final ClassFile file, final ClassMethod sctor, final AtomicInteger fieldCounter, final String methodName, final CustomStateMachine stateMachine) {
+        //list of all states except the initial
+        final List<State> allStates = new ArrayList<State>();
+        final State initial = new State((byte) 0, "");
+        for (String value : httpVerbs) {
+            addStates(initial, value, allStates);
+        }
+        //we want initial to be number 0
+        final AtomicInteger stateCounter = new AtomicInteger(-1);
+        setupStateNo(initial, stateCounter, fieldCounter);
+        for (State state : allStates) {
+            setupStateNo(state, stateCounter, fieldCounter);
+            createStateField(state, file, sctor.getCodeAttribute());
+        }
+
+        final int noStates = stateCounter.get();
+
+        final ClassMethod handle = file.addMethod(Modifier.PRIVATE, methodName, "I", DescriptorUtils.makeDescriptor(ByteBuffer.class), "I", DescriptorUtils.makeDescriptor(TokenState.class), DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class));
+        writeStateMachine(className, handle.getCodeAttribute(), initial, allStates, noStates, stateMachine);
     }
 
     private static void createStateField(final State state, final ClassFile file, final CodeAttribute sc) {
@@ -146,7 +246,7 @@ public class TokenizerGenerator {
         }
     }
 
-    private static void writeHandle(final String className, final CodeAttribute c, final State initial, final List<State> allStates, int noStates) {
+    private static void writeStateMachine(final String className, final CodeAttribute c, final State initial, final List<State> allStates, int noStates, final CustomStateMachine stateMachine) {
 
         final List<State> states = new ArrayList<State>();
         states.add(initial);
@@ -159,7 +259,7 @@ public class TokenizerGenerator {
         c.dup();
         c.dup();
         c.dup();
-        c.getfield(TokenState.class.getName(), "state", "I");
+        c.getfield(TokenState.class.getName(), "parseState", "I");
         c.istore(CURRENT_STATE_VAR);
         c.getfield(TokenState.class.getName(), "pos", "I");
         c.istore(STATE_POS_VAR);
@@ -169,17 +269,10 @@ public class TokenizerGenerator {
         c.astore(STATE_CURRENT_BYTES_VAR);
         c.getfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
         c.astore(STATE_STRING_BUILDER_VAR);
-        c.iconst(0);
-        c.istore(BYTE_POS_VAR);
+
 
         c.iload(BYTES_REMAINING_VAR);
         final BranchEnd nonZero = c.ifne();
-
-        //before we return we need to update the state number
-        c.aload(TOKEN_STATE_VAR);
-        c.iload(CURRENT_STATE_VAR);
-        c.putfield(TokenState.class.getName(), "state", "I");
-
         //we have run out of bytes, return 0
         c.iconst(0);
         c.returnInstruction();
@@ -201,27 +294,12 @@ public class TokenizerGenerator {
             }
         }
         c.tableswitch(builder);
-        c.branchEnd(builder.getDefaultBranchEnd().get());
-        c.newInstruction(RuntimeException.class);
-        c.dup();
-        c.ldc("Could not find state");
-        c.invokespecial(RuntimeException.class.getName(), "<init>", "(Ljava/lang/String;)V");
-        c.athrow();
+        stateNotFound(c, builder);
 
         //return code
         //code that synchronizes the state object and returns
-        c.setupFrame(DescriptorUtils.makeDescriptor("fakeclass"),
-                "[B",
-                "I",
-                DescriptorUtils.makeDescriptor(TokenState.class),
-                DescriptorUtils.makeDescriptor(List.class),
-                "I",
-                "I",
-                DescriptorUtils.makeDescriptor(String.class),
-                DescriptorUtils.makeDescriptor(StringBuilder.class),
-                "I",
-                "[B");
-        CodeLocation returnCode = c.mark();
+        setupLocalVariables(c);
+        final CodeLocation returnIncompleteCode = c.mark();
         c.aload(TOKEN_STATE_VAR);
         c.dup();
         c.dup();
@@ -237,27 +315,59 @@ public class TokenizerGenerator {
         c.aload(STATE_STRING_BUILDER_VAR);
         c.putfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
         c.iload(CURRENT_STATE_VAR);
-        c.putfield(TokenState.class.getName(), "state", "I");
+        c.putfield(TokenState.class.getName(), "parseState", "I");
+        c.iload(BYTES_REMAINING_VAR);
+        c.returnInstruction();
+        setupLocalVariables(c);
+        final CodeLocation returnCompleteCode = c.mark();
+        c.aload(TOKEN_STATE_VAR);
+        c.dup();
+        c.dup();
+        c.dup();
+        c.dup();
+
         c.iconst(0);
+        c.putfield(TokenState.class.getName(), "pos", "I");
+        c.aconstNull();
+        c.putfield(TokenState.class.getName(), "current", DescriptorUtils.makeDescriptor(String.class));
+        c.aconstNull();
+        c.putfield(TokenState.class.getName(), "currentBytes", "[B");
+        c.aconstNull();
+        c.putfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
+        c.iconst(0);
+        c.putfield(TokenState.class.getName(), "parseState", "I");
+        c.iload(BYTES_REMAINING_VAR);
         c.returnInstruction();
 
         //prefix
         c.branchEnd(prefixMatch.get());
 
         final CodeLocation prefixLoop = c.mark(); //loop for when we are prefix matching
-        handleReturnIfNoMoreBytes(c, returnCode);
+        handleReturnIfNoMoreBytes(c, returnIncompleteCode);
         //load 3 copies of the current byte into the stack
         c.aload(BYTE_BUFFER_VAR);
-        c.iload(BYTE_POS_VAR);
-        c.baload();
-        c.iinc(BYTE_POS_VAR, 1);
+        c.invokevirtual(ByteBuffer.class.getName(), "get", "()B");
         c.dup();
         c.dup();
-
         c.iinc(BYTES_REMAINING_VAR, -1);
-
+        final Set<BranchEnd> prefixHandleSpace = new HashSet<>();
+        if(stateMachine.isHeader()) {
+            c.iconst(':');
+            prefixHandleSpace.add(c.ifIcmpeq());
+            c.dup();
+        }
         c.iconst(' ');
-        BranchEnd prefixHandleSpace = c.ifIcmpeq();
+        prefixHandleSpace.add(c.ifIcmpeq());
+        c.dup();
+        c.iconst('\t');
+        prefixHandleSpace.add(c.ifIcmpeq());
+        c.dup();
+        c.iconst('\r');
+        prefixHandleSpace.add(c.ifIcmpeq());
+        c.dup();
+        c.iconst('\n');
+        prefixHandleSpace.add(c.ifIcmpeq());
+
         //check if we have overrun
         c.aload(STATE_CURRENT_BYTES_VAR);
         c.arraylength();
@@ -276,7 +386,7 @@ public class TokenizerGenerator {
         //so they match
         c.pop2(); //pop our extra bytes off the stack, we do not need it
         c.iinc(STATE_POS_VAR, 1);
-        handleReturnIfNoMoreBytes(c, returnCode);
+        handleReturnIfNoMoreBytes(c, returnIncompleteCode);
         c.gotoInstruction(prefixLoop);
 
         c.branchEnd(overrun); //overrun and not match use the same code path
@@ -299,7 +409,9 @@ public class TokenizerGenerator {
         BranchEnd prefixToNoState = c.gotoInstruction();
 
         //handle the space case
-        c.branchEnd(prefixHandleSpace);
+        for (BranchEnd b : prefixHandleSpace) {
+            c.branchEnd(b);
+        }
 
         //new state will be 0
         c.iconst(0);
@@ -310,27 +422,23 @@ public class TokenizerGenerator {
         c.iload(STATE_POS_VAR);
         BranchEnd correctLength = c.ifIcmpeq();
 
-        c.aload(TOKEN_HANDLER_VAR);
         c.aload(STATE_CURRENT_VAR);
         c.iconst(0);
         c.iload(STATE_POS_VAR);
         c.invokevirtual(String.class.getName(), "substring", "(II)Ljava/lang/String;");
-        c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
+        stateMachine.handleOtherToken(c);
         //TODO: exit if it returns null
         //decrease the available bytes
         c.pop2();
-        c.pop();
-        tokenDone(c, initial);
+        tokenDone(c, returnCompleteCode, stateMachine);
 
         c.branchEnd(correctLength);
 
-        c.aload(TOKEN_HANDLER_VAR);
         c.aload(STATE_CURRENT_VAR);
-        c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
+        stateMachine.handleStateMachineMatchedToken(c);
         //TODO: exit if it returns null
         c.pop2();
-        c.pop();
-        tokenDone(c, initial);
+        tokenDone(c, returnCompleteCode, stateMachine);
 
 
         //nostate
@@ -340,14 +448,27 @@ public class TokenizerGenerator {
 
         //load 2 copies of the current byte into the stack
         c.aload(BYTE_BUFFER_VAR);
-        c.iload(BYTE_POS_VAR);
-        c.baload();
-        c.iinc(BYTE_POS_VAR, 1);
+        c.invokevirtual(ByteBuffer.class.getName(), "get", "()B");
         c.dup();
         c.iinc(BYTES_REMAINING_VAR, -1);
 
+        final Set<BranchEnd> nostateHandleSpace = new HashSet<>();
+        if(stateMachine.isHeader()) {
+            c.iconst(':');
+            nostateHandleSpace.add(c.ifIcmpeq());
+            c.dup();
+        }
         c.iconst(' ');
-        BranchEnd nostateHandleSpace = c.ifIcmpeq();
+        nostateHandleSpace.add(c.ifIcmpeq());
+        c.dup();
+        c.iconst('\t');
+        nostateHandleSpace.add(c.ifIcmpeq());
+        c.dup();
+        c.iconst('\r');
+        nostateHandleSpace.add(c.ifIcmpeq());
+        c.dup();
+        c.iconst('\n');
+        nostateHandleSpace.add(c.ifIcmpeq());
         c.aload(STATE_STRING_BUILDER_VAR);
         c.swap();
         c.invokevirtual(StringBuilder.class.getName(), "append", "(C)Ljava/lang/StringBuilder;");
@@ -361,26 +482,41 @@ public class TokenizerGenerator {
         c.aload(STATE_STRING_BUILDER_VAR);
         c.putfield(TokenState.class.getName(), "stringBuilder", DescriptorUtils.makeDescriptor(StringBuilder.class));
         c.iload(CURRENT_STATE_VAR);
-        c.putfield(TokenState.class.getName(), "state", "I");
+        c.putfield(TokenState.class.getName(), "parseState", "I");
         c.iconst(0);
         c.returnInstruction();
-
-        c.branchEnd(nostateHandleSpace);
-        c.aload(TOKEN_HANDLER_VAR);
+        for (BranchEnd b : nostateHandleSpace) {
+            c.branchEnd(b);
+        }
         c.aload(STATE_STRING_BUILDER_VAR);
         c.invokevirtual(StringBuilder.class.getName(), "toString", "()Ljava/lang/String;");
-        c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
+        c.aconstNull();
+        c.astore(STATE_STRING_BUILDER_VAR);
+        stateMachine.handleOtherToken(c);
         //TODO: exit if it returns null
-        c.pop2();
-        tokenDone(c, initial);
+        c.pop();
+        tokenDone(c, returnCompleteCode, stateMachine);
 
 
-        invokeState(className, c, ends.get(initial).get(), initial, initial, noStateLoop, prefixLoop);
+        invokeState(className, c, ends.get(initial).get(), initial, initial, noStateLoop, prefixLoop, returnIncompleteCode, returnCompleteCode, stateMachine);
         for (final State s : allStates) {
             if (s.stateno >= 0) {
-                invokeState(className, c, ends.get(s).get(), s, initial, noStateLoop, prefixLoop);
+                invokeState(className, c, ends.get(s).get(), s, initial, noStateLoop, prefixLoop, returnIncompleteCode, returnCompleteCode, stateMachine);
             }
         }
+    }
+
+    private static void setupLocalVariables(final CodeAttribute c) {
+        c.setupFrame(DescriptorUtils.makeDescriptor("fakeclass"),
+                "[B",
+                "I",
+                DescriptorUtils.makeDescriptor(TokenState.class),
+                DescriptorUtils.makeDescriptor(HttpExchangeBuilder.class),
+                "I",
+                "I",
+                DescriptorUtils.makeDescriptor(String.class),
+                DescriptorUtils.makeDescriptor(StringBuilder.class),
+                "[B");
     }
 
     private static void handleReturnIfNoMoreBytes(final CodeAttribute c, final CodeLocation returnCode) {
@@ -388,33 +524,54 @@ public class TokenizerGenerator {
         c.ifEq(returnCode); //go back to the start if we have not run out of bytes
     }
 
-    private static void tokenDone(final CodeAttribute c, final State initialState) {
-        c.iconst(0);
-        c.istore(CURRENT_STATE_VAR);
-
-        c.iload(BYTES_REMAINING_VAR);
-        initialState.ifne(c); //go back to the start if we have not run out of bytes
-        c.aload(TOKEN_STATE_VAR);
-        c.iconst(0);
-        c.returnInstruction();
+    private static void tokenDone(final CodeAttribute c, final CodeLocation returnCode, final CustomStateMachine stateMachine) {
+        stateMachine.updateParseState(c);
+        c.gotoInstruction(returnCode);
     }
 
-    private static void invokeState(final String className, final CodeAttribute c, BranchEnd methodState, final State currentState, final State initialState, final CodeLocation noStateStart, final CodeLocation prefixStart) {
+    private static void invokeState(final String className, final CodeAttribute c, BranchEnd methodState, final State currentState, final State initialState, final CodeLocation noStateStart, final CodeLocation prefixStart, final CodeLocation returnIncompleteCode, final CodeLocation returnCompleteCode, final CustomStateMachine stateMachine) {
         c.branchEnd(methodState);
         currentState.mark(c);
 
-        //load 2 copies of the current byte into the stack
-        c.aload(BYTE_BUFFER_VAR);
-        c.iload(BYTE_POS_VAR);
-        c.iinc(BYTE_POS_VAR, 1);
-        c.iinc(BYTES_REMAINING_VAR, -1);
-        c.baload();
+        if(currentState == initialState) {
+            //if this is the initial state there is a possibility that we need to deal with a left over character first
+            //we need to see if we start with a left over character
+            c.aload(TOKEN_STATE_VAR);
+            c.getfield(TokenState.class.getName(), "leftOver", "B");
+            c.dup();
+            final BranchEnd end = c.ifne();
+            c.pop();
+            //load 2 copies of the current byte into the stack
+            c.aload(BYTE_BUFFER_VAR);
+            c.invokevirtual(ByteBuffer.class.getName(), "get", "()B");
+            c.iinc(BYTES_REMAINING_VAR, -1);
+            BranchEnd cont = c.gotoInstruction();
+            c.branchEnd(end);
+            c.aload(TOKEN_STATE_VAR);
+            c.iconst(0);
+            c.putfield(TokenState.class.getName(), "leftOver", "B");
+            c.branchEnd(cont);
+
+        } else {
+            //load 2 copies of the current byte into the stack
+            c.aload(BYTE_BUFFER_VAR);
+            c.invokevirtual(ByteBuffer.class.getName(), "get", "()B");
+            c.iinc(BYTES_REMAINING_VAR, -1);
+        }
+
+
         c.dup();
-        final AtomicReference<BranchEnd> tokenEnd;
+        final Set<AtomicReference<BranchEnd>> tokenEnds = new HashSet<>();
         final Map<State, AtomicReference<BranchEnd>> ends = new IdentityHashMap<State, AtomicReference<BranchEnd>>();
-        if(currentState.next.size() > 6) {
+        if (currentState.next.size() > 6) {
             final LookupSwitchBuilder s = new LookupSwitchBuilder();
-            tokenEnd = s.add((byte) ' ');
+            if(stateMachine.isHeader()) {
+                tokenEnds.add(s.add((byte)':'));
+            }
+            tokenEnds.add(s.add((byte) ' '));
+            tokenEnds.add(s.add((byte) '\t'));
+            tokenEnds.add(s.add((byte) '\r'));
+            tokenEnds.add(s.add((byte) '\n'));
             for (final State state : currentState.next.values()) {
                 ends.put(state, s.add(state.value));
             }
@@ -427,8 +584,22 @@ public class TokenizerGenerator {
                 ends.put(state, new AtomicReference<BranchEnd>(c.ifIcmpeq()));
                 c.dup();
             }
+            if(stateMachine.isHeader()) {
+                c.iconst(':');
+                tokenEnds.add(new AtomicReference<>(c.ifIcmpeq()));
+                c.dup();
+            }
             c.iconst(' ');
-            tokenEnd = new AtomicReference<>(c.ifIcmpeq());
+            tokenEnds.add(new AtomicReference<>(c.ifIcmpeq()));
+            c.dup();
+            c.iconst('\t');
+            tokenEnds.add(new AtomicReference<>(c.ifIcmpeq()));
+            c.dup();
+            c.iconst('\r');
+            tokenEnds.add(new AtomicReference<>(c.ifIcmpeq()));
+            c.dup();
+            c.iconst('\n');
+            tokenEnds.add(new AtomicReference<>(c.ifIcmpeq()));
 
         }
 
@@ -447,18 +618,24 @@ public class TokenizerGenerator {
         c.gotoInstruction(noStateStart);
 
         //now we write out tokenEnd
-        c.branchEnd(tokenEnd.get());
+        for (AtomicReference<BranchEnd> tokenEnd : tokenEnds) {
+            c.branchEnd(tokenEnd.get());
+        }
         c.pop(); //opo off our extra byte, we don't need it
         if (!currentState.soFar.equals("")) {
-            c.aload(TOKEN_HANDLER_VAR);
             c.ldc(currentState.soFar);
-            c.invokeinterface(List.class.getName(), "add", "(Ljava/lang/Object;)Z");
+            if (currentState.finalState) {
+                stateMachine.handleStateMachineMatchedToken(c);
+            } else {
+                stateMachine.handleOtherToken(c);
+            }
             //TODO: exit if it returns null
-            c.pop();
-            tokenDone(c, initialState);
+            tokenDone(c, returnCompleteCode, stateMachine);
+        } else {
+            setupLocalVariables(c);
+            handleReturnIfNoMoreBytes(c, returnIncompleteCode);
         }
         initialState.jumpTo(c);
-
 
         for (Map.Entry<State, AtomicReference<BranchEnd>> e : ends.entrySet()) {
             c.branchEnd(e.getValue().get());
@@ -483,12 +660,25 @@ public class TokenizerGenerator {
         }
     }
 
+    /**
+     * Throws an exception when an invalid state is hit in a tableswitch
+     */
+    private static void stateNotFound(final CodeAttribute c, final TableSwitchBuilder builder) {
+        c.branchEnd(builder.getDefaultBranchEnd().get());
+        c.newInstruction(RuntimeException.class);
+        c.dup();
+        c.ldc("Could not find state");
+        c.invokespecial(RuntimeException.class.getName(), "<init>", "(Ljava/lang/String;)V");
+        c.athrow();
+    }
+
     private static void addStates(final State initial, final String value, final List<State> allStates) {
         addStates(initial, value, 0, allStates);
     }
 
     private static void addStates(final State current, final String value, final int i, final List<State> allStates) {
         if (i == value.length()) {
+            current.finalState = true;
             return;
         }
         byte[] bytes = value.getBytes();
@@ -506,6 +696,10 @@ public class TokenizerGenerator {
         Integer stateno;
         String terminalState;
         String fieldName;
+        /**
+         * If this state represents a possible final state
+         */
+        boolean finalState;
         final byte value;
         final String soFar;
         final Map<Byte, State> next = new HashMap<Byte, State>();
@@ -544,5 +738,104 @@ public class TokenizerGenerator {
                 ca.ifne(location);
             }
         }
+    }
+
+    /**
+     * A class that separates out the different behaviour of the three state machines (VERB, VERSION and HEADER)
+     */
+    private interface CustomStateMachine {
+
+        boolean isHeader();
+
+        void handleStateMachineMatchedToken(final CodeAttribute c);
+
+        void handleOtherToken(final CodeAttribute c);
+
+        void updateParseState(CodeAttribute c);
+    }
+
+
+    private static class HeaderStateMachine implements CustomStateMachine {
+
+        @Override
+        public boolean isHeader() {
+            return true;
+        }
+
+        @Override
+        public void handleOtherToken(final CodeAttribute c) {
+            c.aload(HTTP_EXCHANGE_BUILDER);
+            c.swap();
+            c.putfield(HttpExchangeBuilder.class.getName(), "nextOtherHeader", DescriptorUtils.makeDescriptor(String.class));
+        }
+
+        @Override
+        public void handleStateMachineMatchedToken(final CodeAttribute c) {
+            c.aload(HTTP_EXCHANGE_BUILDER);
+            c.swap();
+            c.putfield(HttpExchangeBuilder.class.getName(), "nextStandardHeader", DescriptorUtils.makeDescriptor(String.class));
+        }
+
+        @Override
+        public void updateParseState(final CodeAttribute c) {
+            c.aload(TOKEN_STATE_VAR);
+            c.iconst(TokenState.HEADER_VALUE);
+            c.putfield(TokenState.class.getName(), "state", "I");
+        }
+    }
+
+    private static class VerbStateMachine implements CustomStateMachine {
+
+        @Override
+        public boolean isHeader() {
+            return false;
+        }
+
+        @Override
+        public void handleStateMachineMatchedToken(final CodeAttribute c) {
+            handleOtherToken(c);
+        }
+
+        @Override
+        public void handleOtherToken(final CodeAttribute c) {
+            c.aload(HTTP_EXCHANGE_BUILDER);
+            c.swap();
+            c.putfield(HttpExchangeBuilder.class.getName(), "verb", DescriptorUtils.makeDescriptor(String.class));
+        }
+
+        @Override
+        public void updateParseState(final CodeAttribute c) {
+            c.aload(TOKEN_STATE_VAR);
+            c.iconst(TokenState.PATH);
+            c.putfield(TokenState.class.getName(), "state", "I");
+        }
+    }
+
+    private static class VersionStateMachine implements CustomStateMachine {
+
+        @Override
+        public boolean isHeader() {
+            return false;
+        }
+
+        @Override
+        public void handleOtherToken(final CodeAttribute c) {
+            c.aload(HTTP_EXCHANGE_BUILDER);
+            c.swap();
+            c.putfield(HttpExchangeBuilder.class.getName(), "httpVersion", DescriptorUtils.makeDescriptor(String.class));
+        }
+
+        @Override
+        public void handleStateMachineMatchedToken(final CodeAttribute c) {
+            handleOtherToken(c);
+        }
+
+        @Override
+        public void updateParseState(final CodeAttribute c) {
+            c.aload(TOKEN_STATE_VAR);
+            c.iconst(TokenState.HEADER);
+            c.putfield(TokenState.class.getName(), "state", "I");
+        }
+
     }
 }

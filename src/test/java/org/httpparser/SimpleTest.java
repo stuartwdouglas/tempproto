@@ -22,9 +22,7 @@
 
 package org.httpparser;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.nio.ByteBuffer;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -35,7 +33,11 @@ import org.junit.Test;
 
 public class SimpleTest {
 
-    public static final String[] VALUES = {"PUT", "POST", "Accept",
+    public static final String[] VERBS = { "GET", "POST", "PUT", };
+
+    public static final String[] VERSIONS = {"HTTP/1.1", "HTTP/1.0"};
+
+    public static final String[] HEADER_VALUES = {"Accept",
             "Accept-Charset",
             "Accept-Encoding",
             "Accept-Language",
@@ -89,67 +91,23 @@ public class SimpleTest {
             "Warning",
             "WWW-Authenticate"};
 
-    //@Test
-    public void test() {
-
-
-        final Tokenizer parser = TokenizerGenerator.createTokenizer(VALUES);
-
-
-        byte[] in = "PUT POST   PU  ggg PUTmore ".getBytes();
-        final List<String> tokens = new ArrayList<>();
-        final TokenState context = new TokenState();
-        parser.handle(in, in.length, context, tokens);
-
-        final String[] expected = {"PUT", "POST", "PU",  "ggg", "PUTmore" };
-        Assert.assertEquals(Arrays.asList(expected), tokens);
-        Assert.assertSame("PUT", tokens.get(0));
-        Assert.assertSame("POST", tokens.get(1));
-        Assert.assertNotSame("PU", tokens.get(2));
-        Assert.assertNotSame("ggg", tokens.get(3));
-        Assert.assertNotSame("PUTmore", tokens.get(4));
-
-
-    }
-
     @Test
-    public void speedTest() {
-        final Tokenizer parser = TokenizerGenerator.createTokenizer(VALUES);
+    public void test() {
+        final Tokenizer parser = TokenizerGenerator.createTokenizer(VERBS, VERSIONS, HEADER_VALUES);
 
-        byte[] in = "PUT POST   PU  ggg PUTmore Accept-Charset Accept-Encoding Accept-Language Accept-Ranges ".getBytes();
-        //byte[] in = "PUT ".getBytes();
-        List<String> tokens = null;
-        for (int j = 0; j < 10000000; ++j) {
-            tokens = new ArrayList<>();
-            final List<String> t = tokens;
-            //stringBuilder(in, new TokenHandler(tokens));
-            final TokenState context = new TokenState();
-            parser.handle(in, in.length, context, tokens);
-        }
-        long t = System.currentTimeMillis();
-        for (int j = 0; j < 100000000; ++j) {
-            tokens = new ArrayList<>();
-            final List<String> r = tokens;
-            //stringBuilder(in, tokens);
-            final TokenState context = new TokenState();
-            parser.handle(in, in.length, context, tokens);
-        }
-        throw new RuntimeException("took " + (System.currentTimeMillis() - t));
+        byte[] in = "GET /somepath HTTP/1.1\r\nHost: www.somehost.net\r\n\r\n".getBytes();
+        final TokenState context = new TokenState();
+
+        HttpExchangeBuilder result = new HttpExchangeBuilder();
+
+        parser.handle(ByteBuffer.wrap(in), in.length, context, result);
+
+        Assert.assertSame("GET", result.verb);
+        Assert.assertEquals("/somepath", result.path);
+        Assert.assertSame("HTTP/1.1", result.httpVersion);
+        Assert.assertTrue(result.standardHeaders.containsKey("Host"));
+        Assert.assertEquals("www.somehost.net", result.standardHeaders.get("Host"));
     }
 
-    void stringBuilder(byte[] in, final TokenHandler handler) {
-        StringBuilder b = new StringBuilder();
-        for(int i = 0; i < in.length; ++i){
-            char c = (char) in[i];
-            if(c == ' ') {
-                if(b.length() != 0) {
-                    handler.handleToken(b.toString());
-                    b = new StringBuilder();
-                }
-            } else {
-                b.append(c);
-            }
-        }
-    }
 
 }

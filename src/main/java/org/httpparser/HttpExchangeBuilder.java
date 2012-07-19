@@ -22,36 +22,25 @@
 
 package org.httpparser;
 
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Map;
+
 /**
+ *
+ *
  * @author Stuart Douglas
  */
 public class HttpExchangeBuilder {
 
-    private String method;
-    private String path;
-    private String httpVersion;
+    String verb;
+    String path;
+    String httpVersion;
+    final Map<String, String> standardHeaders = new IdentityHashMap<>();
+    final Map<String, String> otherHeaders = new HashMap<>();
 
-    public String getMethod() {
-        return method;
-    }
+    String nextStandardHeader;
+    String nextOtherHeader;
 
-    public void setMethod(final String method) {
-        this.method = method;
-    }
 
-    public String getPath() {
-        return path;
-    }
-
-    public void setPath(final String path) {
-        this.path = path;
-    }
-
-    public String getHttpVersion() {
-        return httpVersion;
-    }
-
-    public void setHttpVersion(final String httpVersion) {
-        this.httpVersion = httpVersion;
-    }
 }
